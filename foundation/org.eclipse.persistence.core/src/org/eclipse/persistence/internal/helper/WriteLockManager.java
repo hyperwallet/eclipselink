@@ -22,26 +22,25 @@
 //       - 526957 : Split the logging and trace messages
 package org.eclipse.persistence.internal.helper;
 
-import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
 import org.eclipse.persistence.descriptors.ClassDescriptor;
 import org.eclipse.persistence.descriptors.FetchGroupManager;
 import org.eclipse.persistence.exceptions.ConcurrencyException;
 import org.eclipse.persistence.internal.helper.linkedlist.ExposedNodeLinkedList;
 import org.eclipse.persistence.internal.identitymaps.CacheKey;
-import org.eclipse.persistence.internal.localization.LoggingLocalization;
 import org.eclipse.persistence.internal.localization.TraceLocalization;
 import org.eclipse.persistence.internal.queries.ContainerPolicy;
-import org.eclipse.persistence.internal.sessions.AbstractSession;
-import org.eclipse.persistence.internal.sessions.MergeManager;
-import org.eclipse.persistence.internal.sessions.ObjectChangeSet;
-import org.eclipse.persistence.internal.sessions.UnitOfWorkChangeSet;
-import org.eclipse.persistence.internal.sessions.UnitOfWorkImpl;
+import org.eclipse.persistence.internal.sessions.*;
 import org.eclipse.persistence.logging.SessionLog;
 import org.eclipse.persistence.mappings.DatabaseMapping;
+
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import static java.lang.Boolean.parseBoolean;
 
 /**
  * INTERNAL:
@@ -61,10 +60,18 @@ import org.eclipse.persistence.mappings.DatabaseMapping;
  */
 public class WriteLockManager {
 
+    private static final Logger logger = Logger.getLogger(WriteLockManager.class.getSimpleName());
+
     // this will allow us to prevent a readlock thread from looping forever.
     public static final int MAXTRIES = 10000;
 
     public static final int MAX_WAIT = 600000; //10 mins
+
+    private static boolean isInterruptionEnabled() {
+        String value = System.getProperty("interruptionEnabled");
+        return parseBoolean(value);
+    }
+
 
     /* This attribute stores the list of threads that have had a problem acquiring locks */
     /*  the first element in this list will be the prevailing thread */
@@ -98,7 +105,15 @@ public class WriteLockManager {
                             toWaitOn.wait();// wait for lock on object to be released
                         }
                     } catch (InterruptedException ex) {
-                        // Ignore exception thread should continue.
+                        //https://jira.site1.hyperwallet.local/browse/HW-53073
+                        //Custom change to allow thread interruptions for bad threads stuck in org.eclipse.persistence.internal.helper.WriteLockManager.acquireLocksForClone pattern
+                        if (isInterruptionEnabled()) {
+                            logger.log(Level.SEVERE,
+                                    "EclipseLinkLockHandler has set interruption flag to TRUE. Allowing interrupts");
+                            throw ConcurrencyException.waitWasInterrupted(ex.getMessage());
+                        }
+                        logger.log(Level.WARNING,
+                                "EclipseLinkLockHandler has not set the interruption flag to TRUE. Will not interrupt");
                     }
                 }
                 Object waitObject = toWaitOn.getObject();
@@ -110,6 +125,7 @@ public class WriteLockManager {
                 toWaitOn = acquireLockAndRelatedLocks(objectForClone, lockedObjects, refreshedObjects, cacheKey, descriptor, cloningSession);
                 if ((toWaitOn != null) && ((++tries) > MAXTRIES)) {
                     // If we've tried too many times abort.
+                    logger.log(Level.WARNING, "Interruption done by EclipseLink Library.");
                     throw ConcurrencyException.maxTriesLockOnCloneExceded(objectForClone);
                 }
             }

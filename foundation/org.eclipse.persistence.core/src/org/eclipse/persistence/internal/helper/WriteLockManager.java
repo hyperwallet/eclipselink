@@ -26,6 +26,8 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.eclipse.persistence.descriptors.ClassDescriptor;
 import org.eclipse.persistence.descriptors.FetchGroupManager;
@@ -70,7 +72,7 @@ public class WriteLockManager {
 
     private static boolean isInterruptionEnabled() {
         String value = System.getProperty("interruptionEnabled");
-        return parseBoolean(value);
+        return Boolean.parseBoolean(value);
     }
 
     /* This attribute stores the list of threads that have had a problem acquiring locks */
